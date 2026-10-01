@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Smith v. Jones</title>
+      <link>https://cdn.ca9.uscourts.gov/datastore/opinions/2026/09/30/24-1234.pdf</link>
+      <pubDate>Wed, 30 Sep 2026 12:00:00 -0700</pubDate>
+    </item>
+    <item>
+      <title>Doe v. Roe</title>
+      <link>https://cdn.ca9.uscourts.gov/datastore/opinions/2026/09/29/25-2222.pdf</link>
+      <pubDate>Tue, 29 Sep 2026 12:00:00 -0700</pubDate>
+    </item>
+  </channel>
+</rss>

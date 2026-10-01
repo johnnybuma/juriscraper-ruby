@@ -15,6 +15,8 @@ require_relative "juriscraper/oral_argument_site"
 require_relative "juriscraper/registry"
 require_relative "juriscraper/python_bridge"
 require_relative "juriscraper/scrapers/united_states/federal_appellate/ca1"
+require_relative "juriscraper/scrapers/united_states/federal_appellate/ca9"
+require_relative "juriscraper/integrations/capo_virtual"
 require_relative "juriscraper/cli"
 
 module Juriscraper
@@ -43,3 +45,17 @@ Juriscraper.register(
   Juriscraper::Scrapers::UnitedStates::FederalAppellate::CA1,
   aliases: ["first_circuit", "us_ca1"]
 )
+
+Juriscraper.register(
+  "ca9_p",
+  Juriscraper::Scrapers::UnitedStates::FederalAppellate::CA9Published,
+  aliases: ["ca9", "ninth_circuit", "ninth_circuit_published"]
+)
+
+Juriscraper.register(
+  "ca9_u",
+  Juriscraper::Scrapers::UnitedStates::FederalAppellate::CA9Unpublished,
+  aliases: ["ninth_circuit_unpublished"]
+)
+
+require_relative "juriscraper/integrations/capo_virtual_railtie" if defined?(Rails::Railtie)

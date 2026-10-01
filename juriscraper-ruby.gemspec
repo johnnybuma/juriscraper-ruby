@@ -15,7 +15,10 @@ Gem::Specification.new do |spec|
   DESC
   spec.license = "BSD-2-Clause"
   spec.required_ruby_version = ">= 3.1"
+  spec.homepage = "https://github.com/johnnybuma/juriscraper-ruby"
 
+  spec.metadata["source_code_uri"] = "https://github.com/johnnybuma/juriscraper-ruby"
+  spec.metadata["changelog_uri"] = "https://github.com/johnnybuma/juriscraper-ruby/blob/master/CHANGELOG.md"
   spec.metadata["rubygems_mfa_required"] = "true"
 
   spec.files = Dir.chdir(__dir__) do

@@ -4,7 +4,7 @@
 
 It has two layers:
 
-1. **Native Ruby framework.** Build and run court scrapers without Python. The initial release includes a native First Circuit (`ca1`) opinion scraper and the framework needed to port additional courts.
+1. **Native Ruby framework.** Build and run court scrapers without Python. Native coverage currently includes the First Circuit (`ca1`) plus Ninth Circuit published (`ca9_p`) and unpublished (`ca9_u`) opinion feeds, with the framework needed to port additional courts.
 2. **Optional upstream bridge.** If the Python `juriscraper` package is installed, Ruby can invoke any existing upstream scraper module. This provides broad coverage immediately while individual scrapers are migrated to native Ruby.
 
 This project is independent from Free Law Project. See `NOTICE`.
@@ -23,7 +23,7 @@ From this source tree:
 bundle install
 bundle exec rake test
 gem build juriscraper-ruby.gemspec
-gem install ./juriscraper-ruby-0.1.0.gem
+gem install ./juriscraper-ruby-0.2.0.gem
 ```
 
 Or in a Gemfile after publication:
@@ -79,6 +79,59 @@ CLI equivalent:
 
 ```bash
 juriscraper scrape ca1 --file ca1.html --pretty
+```
+
+## Rails 8 / CapoVirtual integration
+
+Version 0.2.0 includes an optional adapter designed against `capo_virtual/master`. Capo's CaseDocument and CaseStrategy analysis flows already converge on `LegalAuthority.scrape_web!`, persistence, identity gating, and pgvector indexing. The gem integrates at that existing seam instead of creating a parallel authority store.
+
+When loaded inside the CapoVirtual Rails app, the integration auto-installs after Rails initialization when `CaseDocumentAnalysis`, `CaseStrategy`, and `LegalAuthority` are present. On a case-law crawl it:
+
+1. scrapes the configured official court feeds (Ninth Circuit published and unpublished by default);
+2. sends the discovered official opinion PDF URLs through Capo's existing `LegalAuthorityCrawler` with `sites: [:uscourts]`, `max_depth: 0`, and `case_law_only: false`;
+3. lets Capo perform PDF extraction, metadata classification, deduplication, `LegalAuthority` persistence, and pgvector indexing;
+4. runs Capo's original CourtListener case-law crawl unchanged; and
+5. merges the official-court `authority_ids` / `new_authority_ids` into the normal result consumed by both `CaseDocumentAnalysis` and `CaseStrategyPromptConstruct`.
+
+No Capo model is redefined and the gem does not write directly to Capo tables.
+
+Configuration can live in `config/initializers/juriscraper.rb`:
+
+```ruby
+Juriscraper::Integrations::CapoVirtual.configure do |config|
+  config.enabled = true
+  config.court_ids = %w[ca9_p ca9_u]
+  config.max_seed_opinions = 8
+end
+```
+
+Equivalent environment variables:
+
+```text
+JURISCRAPER_CAPO_ENABLED=1
+JURISCRAPER_CAPO_COURTS=ca9_p,ca9_u
+JURISCRAPER_CAPO_MAX_SEEDS=8
+```
+
+Set `JURISCRAPER_CAPO_ENABLED=0` to disable the hook completely. The hook is only active for calls using `case_law_only: true`; ordinary statute/regulation crawls are untouched. Official-court ingestion is best-effort: failure of the supplemental Juriscraper pass is logged but does not replace or suppress Capo's existing CourtListener research.
+
+You can inspect the feed discovery independently:
+
+```ruby
+Juriscraper::Integrations::CapoVirtual.discover(
+  query: "Ninth Circuit education disability precedent"
+)
+```
+
+The returned rows contain `court_id`, `case_name`, `docket_number`, `date_filed`, `precedential_status`, and `download_url`.
+
+### Ninth Circuit native scrapers
+
+```ruby
+published = Juriscraper.registry.build("ca9_p").parse.to_a
+unpublished = Juriscraper.registry.build("ca9_u").parse.to_a
+
+# `ca9` and `ninth_circuit` are aliases for the published feed.
 ```
 
 ## Optional full upstream coverage
@@ -196,7 +249,7 @@ juriscraper upstream juriscraper.opinions.united_states.federal_appellate.ca1 --
 juriscraper version
 ```
 
-## Scope of 0.1.0
+## Scope of 0.2.0
 
 The framework is implemented natively, but **not every upstream court module has been ported to Ruby yet**. The optional `PythonBridge` is the compatibility path for the upstream corpus. Native ports can be added independently through the registry without changing callers.
 
