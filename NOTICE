@@ -1,0 +1,10 @@
+This project is an independent Ruby implementation inspired by the public API
+and architecture of Free Law Project's Juriscraper project:
+https://github.com/freelawproject/juriscraper
+
+Juriscraper is Copyright (c) 2009, Free Law Project and is distributed under
+the BSD 2-Clause license. Free Law Project does not endorse or maintain this
+Ruby implementation.
+
+No upstream source file is vendored in this gem. Court-specific parsing logic
+may be independently reimplemented against the same public court webpages.
