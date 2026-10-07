@@ -10,4 +10,16 @@ module Juriscraper
   class SanityError < Error; end
   class ScraperNotFoundError < Error; end
   class UpstreamBridgeError < Error; end
+
+  class CourtListenerError < Error; end
+  class CourtListenerAuthError < CourtListenerError; end
+  class CourtListenerNotFoundError < CourtListenerError; end
+  class CourtListenerRateLimitError < CourtListenerError
+    attr_reader :retry_after
+
+    def initialize(message = nil, retry_after: nil)
+      super(message)
+      @retry_after = retry_after
+    end
+  end
 end
