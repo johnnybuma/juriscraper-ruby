@@ -9,6 +9,9 @@ Juriscraper::Integrations::CapoVirtual.configure do |config|
 end
 
 # In capo_virtual this is installed automatically after Rails initializes.
+# Set COURTLISTENER_TOKEN (or Juriscraper.configuration.courtlistener_token)
+# to also attach one authenticated CourtListener opinion search. The header is
+# `Authorization: Token <key>`. Without a token, Capo's existing crawl is unchanged.
 Juriscraper::Integrations::CapoVirtual.install!
 
 # Existing CaseDocumentAnalysis / CaseStrategy code can keep calling:

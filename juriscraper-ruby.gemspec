@@ -6,12 +6,13 @@ Gem::Specification.new do |spec|
   spec.name = "juriscraper-ruby"
   spec.version = Juriscraper::VERSION
   spec.authors = ["Juriscraper Ruby contributors"]
-  spec.summary = "Ruby framework and optional upstream bridge for scraping U.S. court metadata"
+  spec.summary = "Ruby court scrapers plus an authenticated CourtListener REST client"
   spec.description = <<~DESC
     A Ruby implementation of the core Juriscraper scraping model: enumerable court
     sites, opinion/oral-argument metadata extraction, content downloading, sanity
     checks, date sorting, a scraper registry, and an optional bridge to the upstream
-    Python Juriscraper package for broad court coverage.
+    Python Juriscraper package for broad court coverage. Includes a CourtListener
+    REST v4 client that authenticates with Authorization: Token.
   DESC
   spec.license = "BSD-2-Clause"
   spec.required_ruby_version = ">= 3.1"

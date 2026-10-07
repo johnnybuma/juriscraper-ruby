@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.0 - 2026-10-07
+
+- Added `Juriscraper::CourtListener::Client`, a REST v4 client that sends `Authorization: Token <key>`.
+- Token resolution order: explicit argument, `Juriscraper.configuration.courtlistener_token`, then `COURTLISTENER_TOKEN`.
+- The token is attached only to the configured CourtListener host. Redirects off that host drop the header.
+- Added CLI commands: `juriscraper courtlistener search|get|usage` (alias `cl`).
+- CapoVirtual attaches one authenticated opinion search to case-law research when a token is configured. No token leaves the existing crawl unchanged.
+- Auth failures raise `CourtListenerAuthError`. HTTP 429 raises `CourtListenerRateLimitError` and includes `Retry-After`. 429 is not retried.
+
 ## 0.2.0 - 2026-10-01
 
 - Added native Ninth Circuit published (`ca9_p`) and unpublished (`ca9_u`) RSS opinion scrapers using the court's current `/decisions/` feeds.
