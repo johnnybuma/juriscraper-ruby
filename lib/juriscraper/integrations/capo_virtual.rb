@@ -52,7 +52,12 @@ module Juriscraper
         end
 
         def call
+          # A research query must not turn an unrelated latest-opinions feed
+          # into a set of authorities attached to that research result.
+          return [] if !@query.strip.empty? && query_terms.empty?
+
           rows = @court_ids.flat_map { |court_id| scrape(court_id) }
+          rows = rows.select { |row| relevance_score(row).positive? } unless @query.strip.empty?
           rows
             .uniq { |row| row.fetch(:download_url) }
             .sort_by { |row| [relevance_score(row), row[:date_filed] || Date.new(1, 1, 1)] }
@@ -91,7 +96,9 @@ module Juriscraper
           haystack = [
             row[:case_name], row[:docket_number], row[:precedential_status], row[:court_id]
           ].join(" ").downcase
-          terms.sum { |term| haystack.include?(term) ? 1 : 0 }
+          terms.sum do |term|
+            haystack.match?(/(?<![[:alnum:]])#{Regexp.escape(term)}(?![[:alnum:]])/) ? 1 : 0
+          end
         end
 
         def query_terms
@@ -107,10 +114,12 @@ module Juriscraper
       module LegalAuthorityHook
         def scrape_web!(query: nil, seeds: [], profiles: [], **options)
           integration = Juriscraper::Integrations::CapoVirtual
-          return super unless integration.enabled_for?(options)
+          return super unless integration.enabled_for?(options, query: query)
 
           discovery = integration.discover(query: query)
           official_urls = discovery.map { |row| row.fetch(:download_url) }
+          page_limit = options[:max_pages].to_i
+          official_urls = official_urls.first(page_limit) if page_limit.positive?
           return super if official_urls.empty?
 
           official_result = {}
@@ -127,6 +136,9 @@ module Juriscraper
               min_new_authorities: [options.fetch(:min_new_authorities, 1).to_i, 1].max,
               case_law_only: false,
               embed_inline: options.fetch(:embed_inline, true),
+              dry_run: options.fetch(:dry_run, false),
+              process_dry_run: options.fetch(:process_dry_run, false),
+              excluded_urls: options.fetch(:excluded_urls, []),
               progress_callback: nil
             )
           rescue StandardError => e
@@ -172,9 +184,11 @@ module Juriscraper
           klass && klass.singleton_class.ancestors.include?(LegalAuthorityHook)
         end
 
-        def enabled_for?(options)
+        def enabled_for?(options, query: nil)
           return false unless configuration.enabled
           return false unless truthy?(options[:case_law_only])
+          return false if truthy?(options[:cde_only])
+          return false if query.to_s.strip.empty?
           return false if Thread.current[:juriscraper_capo_official_ingest]
 
           true

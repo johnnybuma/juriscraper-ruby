@@ -85,9 +85,9 @@ juriscraper scrape ca1 --file ca1.html --pretty
 
 Version 0.2.0 includes an optional adapter designed against `capo_virtual/master`. Capo's CaseDocument and CaseStrategy analysis flows already converge on `LegalAuthority.scrape_web!`, persistence, identity gating, and pgvector indexing. The gem integrates at that existing seam instead of creating a parallel authority store.
 
-When loaded inside the CapoVirtual Rails app, the integration auto-installs after Rails initialization when `CaseDocumentAnalysis`, `CaseStrategy`, and `LegalAuthority` are present. On a case-law crawl it:
+When loaded inside the CapoVirtual Rails app, the integration auto-installs after Rails initialization when `CaseDocumentAnalysis`, `CaseStrategy`, and `LegalAuthority` are present. On a case-law crawl with a nonblank research query it:
 
-1. scrapes the configured official court feeds (Ninth Circuit published and unpublished by default);
+1. scrapes the configured official court feeds (Ninth Circuit published and unpublished by default) and keeps only entries whose case name, docket number, status, or court identifier matches a substantive query term;
 2. sends the discovered official opinion PDF URLs through Capo's existing `LegalAuthorityCrawler` with `sites: [:uscourts]`, `max_depth: 0`, and `case_law_only: false`;
 3. lets Capo perform PDF extraction, metadata classification, deduplication, `LegalAuthority` persistence, and pgvector indexing;
 4. runs Capo's original CourtListener case-law crawl unchanged; and
@@ -113,7 +113,7 @@ JURISCRAPER_CAPO_COURTS=ca9_p,ca9_u
 JURISCRAPER_CAPO_MAX_SEEDS=8
 ```
 
-Set `JURISCRAPER_CAPO_ENABLED=0` to disable the hook completely. The hook is only active for calls using `case_law_only: true`; ordinary statute/regulation crawls are untouched. Official-court ingestion is best-effort: failure of the supplemental Juriscraper pass is logged but does not replace or suppress Capo's existing CourtListener research.
+Set `JURISCRAPER_CAPO_ENABLED=0` to disable the hook completely. The hook is only active for calls using `case_law_only: true` with a nonblank query and without `cde_only: true`; ordinary statute/regulation crawls are untouched. If the original crawl uses `dry_run: true`, the supplemental crawl also uses dry run and does not write authorities or embeddings. Explicit URL exclusions and a positive `max_pages` cap apply to the supplemental pass. A query with no matching feed metadata produces no supplemental ingest; independent feed discovery with `discover(query: nil)` still returns recent entries. Official-court ingestion is best-effort: failure of the supplemental Juriscraper pass is logged but does not replace or suppress Capo's existing CourtListener research.
 
 You can inspect the feed discovery independently:
 
