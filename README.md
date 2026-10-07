@@ -11,26 +11,393 @@ This project is independent from Free Law Project. See `NOTICE`.
 
 ## Requirements
 
-- Ruby 3.1+ (including Ruby 4.x)
-- Nokogiri 1.16+
-- Optional: Python 3.10+ with `juriscraper` installed for `PythonBridge`
+- Ruby **3.1 or newer**, including Ruby 3.3, 3.4, and 4.x. Ruby 3.0 (the default `apt` package on Ubuntu 22.04) is too old and `gem install` will refuse the gem.
+- Git, for the Bundler git source.
+- A C compiler. Nokogiri 1.19 installs from a precompiled package on current macOS and Linux, but its dependency `racc` builds a small native extension.
+- Nokogiri `>= 1.16`, `< 2` (installed automatically).
+- Optional: Python 3.10+ in a virtualenv, only if you want the upstream Juriscraper bridge.
 
-## Install
+This gem is **not published on RubyGems** (`https://rubygems.org/gems/juriscraper-ruby` returns 404). Install it from GitHub. Do not put a bare `gem "juriscraper-ruby"` in a Gemfile.
 
-From this source tree:
+Do not install with `sudo gem`. On macOS that fights System Integrity Protection, and on Linux it writes into the distro Ruby and breaks the next `apt upgrade`.
+
+## Install Ruby
+
+Check what you already have:
+
+```bash
+ruby -v
+which ruby
+```
+
+You want `ruby 3.1` or newer, and `which ruby` must **not** be `/usr/bin/ruby` on a Mac (that binary is gone or too old). If the version is already new enough, skip to [Install the gem](#install-the-gem).
+
+### macOS — Homebrew (recommended)
+
+Homebrew's Ruby is separate from anything Apple used to ship. Apple Silicon installs under `/opt/homebrew`. Intel Macs install under `/usr/local`.
+
+1. Install the Xcode command line tools (compiler for `racc`) and Homebrew if you do not have them:
+
+```bash
+xcode-select --install
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+2. Install Ruby and Git:
+
+```bash
+brew install ruby git
+```
+
+3. Put Homebrew's Ruby ahead of any system Ruby. Use **one** of these, then open a new terminal.
+
+Apple Silicon (`uname -m` prints `arm64`):
+
+```bash
+echo 'export PATH="/opt/homebrew/opt/ruby/bin:$PATH"' >> ~/.zshrc
+exec zsh -l
+```
+
+Intel (`uname -m` prints `x86_64`):
+
+```bash
+echo 'export PATH="/usr/local/opt/ruby/bin:$PATH"' >> ~/.zshrc
+exec zsh -l
+```
+
+4. Confirm you are not still on a leftover Ruby:
+
+```bash
+ruby -v          # 3.1 or newer
+which ruby       # .../opt/ruby/bin/ruby, not /usr/bin/ruby
+```
+
+### Linux — distro package, when it is new enough
+
+| Distro | Package Ruby | Use it? |
+| --- | --- | --- |
+| Debian 12 (bookworm) | 3.1.2 | yes |
+| Debian 13 (trixie) | 3.3 | yes |
+| Ubuntu 24.04 LTS | 3.2 | yes |
+| Ubuntu 22.04 LTS | 3.0.2 | **no** — use rbenv below |
+| Fedora 40+ | 3.3 | yes |
+| Arch / Manjaro | current | yes |
+
+Debian or Ubuntu (24.04 or Debian 12+):
+
+```bash
+sudo apt update
+sudo apt install -y ruby ruby-dev build-essential git pkg-config
+ruby -v
+```
+
+`ruby -v` must print 3.1 or newer. If it prints 3.0, stop and use rbenv. Do not try to force the gem onto 3.0.
+
+Fedora / RHEL-family:
+
+```bash
+sudo dnf install -y ruby ruby-devel gcc make redhat-rpm-config git pkgconf-pkg-config
+ruby -v
+```
+
+Arch:
+
+```bash
+sudo pacman -S --needed ruby base-devel git pkgconf
+ruby -v
+```
+
+### macOS or Linux — rbenv, when you need a specific Ruby
+
+Use this on Ubuntu 22.04, or anywhere you want Ruby 3.3 pinned next to an older system Ruby. Same commands on both operating systems after the build dependencies are installed.
+
+Debian / Ubuntu build dependencies:
+
+```bash
+sudo apt update
+sudo apt install -y git build-essential libssl-dev libreadline-dev zlib1g-dev \
+  libyaml-dev libffi-dev pkg-config autoconf bison
+```
+
+macOS build dependencies:
+
+```bash
+xcode-select --install
+brew install openssl@3 readline libyaml autoconf
+```
+
+Install rbenv and ruby-build into your home directory (works even when the distro `rbenv` package is stale):
+
+```bash
+git clone https://github.com/rbenv/rbenv.git ~/.rbenv
+git clone https://github.com/rbenv/ruby-build.git ~/.rbenv/plugins/ruby-build
+```
+
+macOS uses zsh. Linux desktop installs usually use bash. Add the matching block.
+
+macOS (`~/.zshrc`):
+
+```bash
+echo 'export PATH="$HOME/.rbenv/bin:$PATH"' >> ~/.zshrc
+echo 'eval "$(rbenv init - zsh)"' >> ~/.zshrc
+exec zsh -l
+```
+
+Linux bash (`~/.bashrc`):
+
+```bash
+echo 'export PATH="$HOME/.rbenv/bin:$PATH"' >> ~/.bashrc
+echo 'eval "$(rbenv init - bash)"' >> ~/.bashrc
+exec bash -l
+```
+
+Then install Ruby 3.3.11 and make it the default. Compiling takes several minutes.
+
+```bash
+rbenv install 3.3.11
+rbenv global 3.3.11
+ruby -v          # ruby 3.3.11
+which ruby       # ~/.rbenv/shims/ruby
+gem -v
+```
+
+## Install the gem
+
+Pick one. An application should use Bundler. A laptop-wide `juriscraper` command should use the built gem.
+
+### A. Bundler, in a Rails or other app (usual)
+
+The gem is not on RubyGems, so the Gemfile must name the git repository.
+
+```ruby
+# Gemfile
+source "https://rubygems.org"
+
+gem "juriscraper-ruby", git: "https://github.com/johnnybuma/juriscraper-ruby", branch: "master"
+```
 
 ```bash
 bundle install
+bundle exec ruby -e 'require "juriscraper"; puts Juriscraper::VERSION'
+bundle exec juriscraper version
+```
+
+`bundle exec` is required. Bundler does not put `juriscraper` on your shell `PATH`.
+
+### B. From a clone, for development
+
+```bash
+git clone https://github.com/johnnybuma/juriscraper-ruby.git
+cd juriscraper-ruby
+bundle install
 bundle exec rake test
 gem build juriscraper-ruby.gemspec
-gem install ./juriscraper-ruby-0.2.0.gem
 ```
 
-Or in a Gemfile after publication:
+`bundle exec rake test` is the fixture suite. It does not hit the network. A good run ends with `0 failures, 0 errors`.
 
-```ruby
-gem "juriscraper-ruby"
+If `gem install` into the Ruby prefix fails with a permission error, use the user install in the next section. Otherwise, when this Ruby is one you installed yourself (Homebrew or rbenv), install into it directly:
+
+```bash
+gem install ./juriscraper-ruby-0.3.0.gem
+juriscraper version
 ```
+
+### C. User install, when the Ruby prefix is not writable
+
+This is the path for a distro Ruby (`apt` / `dnf`) installed as root.
+
+```bash
+gem install --user-install ./juriscraper-ruby-0.3.0.gem
+```
+
+RubyGems prints a warning that the executable directory is not on `PATH`. That directory is **not the same on every machine**:
+
+- `~/.local/share/gem/ruby/3.3.0/bin` when `~/.gem` does not exist (fresh Linux, and current RubyGems)
+- `~/.gem/ruby/3.3.0/bin` when `~/.gem` already exists (typical on a Mac that has installed gems before)
+
+Do not hardcode either path. Ask Ruby, and keep the line your shell will re-read:
+
+```bash
+ruby -e 'puts File.join(Gem.user_dir, "bin")'
+```
+
+macOS zsh:
+
+```bash
+echo 'export PATH="$(ruby -e '\''print File.join(Gem.user_dir, "bin")'\'')":$PATH"' >> ~/.zshrc
+exec zsh -l
+```
+
+Linux bash:
+
+```bash
+echo 'export PATH="$(ruby -e '\''print File.join(Gem.user_dir, "bin")'\'')":$PATH"' >> ~/.bashrc
+exec bash -l
+```
+
+If you only need it in the current terminal:
+
+```bash
+export PATH="$(ruby -e 'print File.join(Gem.user_dir, "bin")'):$PATH"
+hash -r
+command -v juriscraper
+juriscraper version
+```
+
+`command -v juriscraper` must print a path under your home directory, not "not found".
+
+## Verify the install
+
+These are the checks that were run against version 0.3.0 on Debian 12 with Ruby 3.3.11. The same commands are what you run on macOS. Expected results are in the comments.
+
+```bash
+ruby -v
+# ruby 3.1.x or newer
+
+juriscraper version
+# 0.3.0
+
+juriscraper list
+# ca1
+# ca9
+# ca9_p
+# ca9_u
+# first_circuit
+# ninth_circuit
+# ninth_circuit_published
+# ninth_circuit_unpublished
+# us_ca1
+
+# Offline parse of the fixture shipped in the repository.
+# From the clone:
+juriscraper scrape ca1 --file test/fixtures/ca1.html --pretty
+# JSON array, first case_names == "Smith v. Jones"
+
+ruby -e 'require "juriscraper"; puts Juriscraper::VERSION'
+# 0.3.0
+```
+
+Inside an app, prefix the `juriscraper` lines with `bundle exec`.
+
+## Optional: upstream Python Juriscraper
+
+Native Ruby scrapers do not need Python. The bridge does. Use a virtualenv on both macOS and Linux. Homebrew Python and Debian/Ubuntu Python reject a system-wide `pip install` with `externally-managed-environment`.
+
+macOS, if `python3` is missing:
+
+```bash
+brew install python
+```
+
+Debian / Ubuntu:
+
+```bash
+sudo apt install -y python3 python3-venv python3-pip
+```
+
+Fedora:
+
+```bash
+sudo dnf install -y python3
+```
+
+Then, same commands on both operating systems:
+
+```bash
+python3 -m venv ~/.venvs/juriscraper
+~/.venvs/juriscraper/bin/python -m pip install -U pip juriscraper
+~/.venvs/juriscraper/bin/python -c 'import juriscraper; print("python juriscraper ok")'
+```
+
+Point Ruby at that interpreter. Do not rely on whichever `python3` happens to be first on `PATH`.
+
+```bash
+export JURISCRAPER_PYTHON="$HOME/.venvs/juriscraper/bin/python"
+```
+
+macOS: append that `export` to `~/.zshrc`. Linux bash: append it to `~/.bashrc`.
+
+Confirm the bridge can see the module (this does not scrape a court):
+
+```bash
+ruby -e 'require "juriscraper"; abort "bridge down" unless Juriscraper::PythonBridge.new.available?; puts "python bridge ok"'
+```
+
+With Bundler, run that under `bundle exec ruby -e '...'`.
+
+A real upstream scrape (network, and the court site must be up):
+
+```bash
+juriscraper upstream juriscraper.opinions.united_states.federal_appellate.ca1 --pretty
+```
+
+## CourtListener token
+
+Scraping a saved HTML file does not need a token. Live CourtListener REST calls do.
+
+Create a token at <https://www.courtlistener.com/profile/api/>.
+
+```bash
+# macOS
+echo 'export COURTLISTENER_TOKEN="paste-the-token-here"' >> ~/.zshrc
+
+# Linux bash
+echo 'export COURTLISTENER_TOKEN="paste-the-token-here"' >> ~/.bashrc
+```
+
+Open a new shell, then:
+
+```bash
+juriscraper courtlistener usage
+juriscraper courtlistener search --type opinions --court ca9 --q "spoliation" --pretty
+```
+
+The client sends `Authorization: Token <key>`. The word `Token` is required. Details are in [CourtListener API token](#courtlistener-api-token) below.
+
+## If installation fails
+
+**`gem install` says `required_ruby_version` or the gem requires Ruby >= 3.1.**  
+`ruby -v` is 3.0 or older. On Ubuntu 22.04 that is the `apt` Ruby. Install 3.3 with rbenv (above) and open a new shell so `which ruby` changes.
+
+**`juriscraper: command not found` after a successful install.**  
+The gem binary directory is not on `PATH`. Re-read the warning `gem install` printed, or run `ruby -e 'puts File.join(Gem.user_dir, "bin")'` for a `--user-install`, or `ruby -e 'puts Gem.bindir'` for a normal install. Export that directory and start a new shell.
+
+**`cannot load such file -- nokogiri` or a compile error inside `racc` / `nokogiri`.**  
+The C toolchain or XML libraries are missing. Install them and run `gem install` or `bundle install` again.
+
+macOS:
+
+```bash
+xcode-select --install
+brew install pkg-config libxml2 libxslt
+```
+
+Debian / Ubuntu:
+
+```bash
+sudo apt install -y build-essential pkg-config libxml2-dev libxslt1-dev zlib1g-dev
+```
+
+Fedora:
+
+```bash
+sudo dnf install -y gcc make ruby-devel libxml2-devel libxslt-devel zlib-devel
+```
+
+A healthy Nokogiri install line looks like `Installing nokogiri-1.19.4 (arm64-darwin)` or `Installing nokogiri-1.19.4 (x86_64-linux-gnu)`, not a long `libxml2` compile.
+
+**`You don't have permission to write` during `gem install`.**  
+Do not use `sudo`. Use `gem install --user-install` and the PATH step in section C.
+
+**`externally-managed-environment` from pip.**  
+You ran `pip install` against Homebrew or distro Python. Use the virtualenv in the Python section. Do not pass `--break-system-packages`.
+
+**`Could not locate Gemfile` or `juriscraper` works in one directory and not another.**  
+An app install is isolated. Run `bundle exec juriscraper ...` from that app. A user-installed CLI is global only after its `bin` directory is on `PATH`.
+
+**Bundler: `Could not find gem 'juriscraper-ruby'`.**  
+The Gemfile is missing the `git:` source. The gem is not on RubyGems.
 
 The require path is intentionally short:
 
@@ -136,10 +503,10 @@ unpublished = Juriscraper.registry.build("ca9_u").parse.to_a
 
 ## Optional full upstream coverage
 
-Install the Python package in the Python environment Ruby should call:
+Install Python into a virtualenv first. The steps that work on both macOS and Linux are in [Optional: upstream Python Juriscraper](#optional-upstream-python-juriscraper). A bare `pip install juriscraper` fails on Homebrew Python and on Debian/Ubuntu with `externally-managed-environment`.
 
 ```bash
-python3 -m pip install juriscraper
+export JURISCRAPER_PYTHON="$HOME/.venvs/juriscraper/bin/python"
 ```
 
 Then:
@@ -239,6 +606,58 @@ end
 
 Use a descriptive user agent and respect each court's terms, robots policy, rate limits, and operational constraints.
 
+## CourtListener API token
+
+REST calls use [CourtListener API v4](https://www.courtlistener.com/help/api/rest/). Create a token at <https://www.courtlistener.com/profile/api/> and send it as:
+
+```http
+Authorization: Token <your-token>
+```
+
+The word `Token` is required. A missing prefix is the usual reason a key looks rate-limited: CourtListener records the call as anonymous.
+
+```ruby
+require "juriscraper"
+
+Juriscraper.configure do |config|
+  config.courtlistener_token = ENV.fetch("COURTLISTENER_TOKEN")
+  # optional: config.courtlistener_base = "https://www.courtlistener.com/api/rest/v4"
+end
+
+client = Juriscraper::CourtListener::Client.new.require_token!
+
+page = client.search(q: "qualified immunity", type: :opinions, court: "ca9")
+page.each { |hit| puts hit["caseName"] }
+
+client.usage
+client.docket(123)
+client.citation_lookup(text: "410 U.S. 113")
+```
+
+`Client.new` with no argument reads, in order:
+
+1. `Juriscraper.configuration.courtlistener_token` when it was set (including `""`, which forces an unauthenticated request);
+2. otherwise `ENV["COURTLISTENER_TOKEN"]`.
+
+An explicit `token:` argument wins over both. The value is sent only to the configured API host. `require_token!` raises `Juriscraper::ConfigurationError` when nothing is configured.
+
+Search `type:` accepts `:opinions` (`o`), `:recap` (`r`), `:dockets` (`d`), `:documents` (`rd`), `:people` (`p`), and `:oral_arguments` (`oa`). `court:` may be one id or a list, sent space-separated the way the search API expects.
+
+`citation_lookup` posts form field `text`. `recap_fetch` posts JSON and does not store the PACER password.
+
+HTTP 401/403 raise `Juriscraper::CourtListenerAuthError`. HTTP 429 raises `Juriscraper::CourtListenerRateLimitError` with `retry_after` and is not retried. Authenticated default limits are 5/minute, 50/hour, and 125/day unless a membership raises them.
+
+```bash
+export COURTLISTENER_TOKEN=...
+juriscraper courtlistener search --type opinions --court ca9 --q "spoliation" --pretty
+juriscraper courtlistener get dockets/123 --pretty
+juriscraper courtlistener usage
+```
+
+`cl` is an alias for `courtlistener`.
+
+When `COURTLISTENER_TOKEN` or `courtlistener_token` is set, the CapoVirtual hook also runs one authenticated opinion search and stores it on `result[:juriscraper][:courtlistener]`. With no token that step is skipped.
+
 ## CLI
 
 ```text
@@ -246,12 +665,13 @@ juriscraper list
 juriscraper scrape ca1 --pretty
 juriscraper scrape ca1 --file saved.html --pretty
 juriscraper upstream juriscraper.opinions.united_states.federal_appellate.ca1 --pretty
+juriscraper courtlistener search --type opinions --court ca9 --q "spoliation" --pretty
 juriscraper version
 ```
 
-## Scope of 0.2.0
+## Scope
 
-The framework is implemented natively, but **not every upstream court module has been ported to Ruby yet**. The optional `PythonBridge` is the compatibility path for the upstream corpus. Native ports can be added independently through the registry without changing callers.
+Version 0.3.0 adds the CourtListener REST client. The scraping framework is native, but **not every upstream court module has been ported to Ruby yet**. Native coverage today is the First Circuit and the Ninth Circuit published and unpublished feeds. The optional `PythonBridge` is the compatibility path for the rest of the upstream corpus. Native ports can be added independently through the registry without changing callers.
 
 ## License
 
