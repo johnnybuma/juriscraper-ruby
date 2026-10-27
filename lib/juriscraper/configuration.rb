@@ -4,7 +4,8 @@ module Juriscraper
   class Configuration
     attr_accessor :user_agent, :open_timeout, :read_timeout, :retries,
                   :retry_backoff, :minimum_request_interval, :logger,
-                  :courtlistener_token, :courtlistener_base
+                  :courtlistener_token, :courtlistener_base,
+                  :pacer_user, :pacer_pass, :pacer_client_code
 
     def initialize
       @user_agent = "Juriscraper-Ruby/#{Juriscraper::VERSION}"
@@ -31,7 +32,12 @@ module Juriscraper
     def resolved_courtlistener_token
       return @courtlistener_token.to_s.strip unless @courtlistener_token.nil?
 
-      ENV["COURTLISTENER_TOKEN"].to_s.strip
+      value = ENV["COURTLISTENER_TOKEN"].to_s.strip
+      value.empty? ? ENV["COURTLISTENER_API_KEY"].to_s.strip : value
+    end
+
+    def inspect
+      "#<#{self.class} credentials=[REDACTED]>"
     end
   end
 end
