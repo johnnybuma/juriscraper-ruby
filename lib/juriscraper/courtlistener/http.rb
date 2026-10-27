@@ -22,10 +22,6 @@ module Juriscraper
 
       attr_reader :token
 
-      def inspect
-        "#<#{self.class} authenticated=#{!@token.empty?}>"
-      end
-
       def request(method, path, params: {}, body: nil, form: nil)
         uri = build_uri(path, params)
         perform(method, uri, body: body, form: form, redirects: 0)
@@ -59,7 +55,6 @@ module Juriscraper
       def interpret(status:, body:, headers: {})
         payload = parse_json(body)
         detail = extract_detail(payload, status)
-        detail = detail.gsub(@token, "[REDACTED]") unless @token.empty?
         case status.to_i
         when 200..299
           payload
@@ -80,10 +75,15 @@ module Juriscraper
       def perform(method, uri, body:, form:, redirects:)
         raise CourtListenerError, "too many redirects for #{uri}" if redirects > REDIRECT_LIMIT
 
-        # POST bodies may contain PACER credentials (recap_fetch), so reject
-        # cross-origin redirects rather than only dropping Authorization.
-        raise CourtListenerError, "refusing cross-origin CourtListener redirect" unless same_origin?(uri)
-        response = transmit(method, uri, body: body, form: form)
+        # Drop the token if a redirect ever leaves the API host.
+        authed = same_origin?(uri) ? self : self.class.new(
+          base: @base,
+          token: "",
+          open_timeout: @open_timeout,
+          read_timeout: @read_timeout,
+          user_agent: @user_agent
+        )
+        response = authed.send(:transmit, method, uri, body: body, form: form)
 
         if response.is_a?(Net::HTTPRedirection)
           location = response["location"].to_s
@@ -135,7 +135,7 @@ module Juriscraper
       end
 
       def same_origin?(uri)
-        uri.host == @origin.host && uri.scheme == @origin.scheme && uri.port == @origin.port && !uri.userinfo
+        uri.host == @origin.host && uri.scheme == @origin.scheme
       end
 
       def stringify_params(params)
@@ -175,7 +175,7 @@ module Juriscraper
       def sanitize_token(token)
         value = token.to_s.strip
         return "" if value.empty?
-        if value.match?(/[[:space:]]/) || value.match?(/[\x00-\x1f\x7f]/)
+        if value.match?(/[[:space:]\x00-\x1f]/)
           raise ConfigurationError, "CourtListener token contains whitespace or control characters"
         end
 

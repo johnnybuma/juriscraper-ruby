@@ -2,7 +2,6 @@
 
 require_relative "http"
 require_relative "page"
-require "time"
 
 module Juriscraper
   module CourtListener
@@ -46,7 +45,7 @@ module Juriscraper
 
         raise ConfigurationError, <<~MSG.strip
           CourtListener API token missing.
-          Set COURTLISTENER_TOKEN, COURTLISTENER_API_KEY, or Juriscraper.configuration.courtlistener_token.
+          Set COURTLISTENER_TOKEN or Juriscraper.configuration.courtlistener_token.
           Create a token at https://www.courtlistener.com/profile/api/
         MSG
       end
@@ -60,54 +59,7 @@ module Juriscraper
       end
 
       def usage
-        request(:get, "api-usage")
-      end
-
-      def inspect
-        "#<#{self.class} authenticated=#{authenticated?}>"
-      end
-
-      # PACER IDs repeat across courts. Scan every cursor, then verify all
-      # identity fields before selecting a docket; never select results.first.
-      def find_docket(record = {}, **identity_fields)
-        identity = Dockets::Identity.new(record, **identity_fields)
-        raise ConfigurationError, "pacer_case_id/caseId is required" if identity.case_id.empty?
-        page = dockets(pacer_case_id: identity.case_id, order_by: "id", omit: "audio_files,clusters")
-        raise CourtListenerError, "docket search was not paginated" unless page.is_a?(Page)
-        candidates = page.each_result.to_a.uniq
-        unless candidates.all? { |candidate| candidate.is_a?(Hash) && candidate["id"].is_a?(Integer) && candidate["id"].positive? }
-          raise CourtListenerError, "invalid docket search result"
-        end
-        checks = candidates.map { |candidate| [candidate, identity.verify(candidate)] }
-        matches = checks.select { |_candidate, result| Dockets::Identity.verified?(result) }.uniq { |candidate, _result| candidate["id"] }
-        if matches.empty?
-          raise DocketNotFoundError.new("No CourtListener docket passed the number/title/court/PACER-ID checks", candidates: checks.map(&:last))
-        end
-        if matches.length > 1
-          raise AmbiguousDocketError.new("Multiple CourtListener dockets passed identity checks", candidates: matches.map(&:last))
-        end
-        matches.first.first
-      end
-
-      def docket_report(record = {}, **identity_fields)
-        metadata = find_docket(record, **identity_fields)
-        page = docket_entries(docket: metadata.fetch("id"), order_by: "id", omit: "recap_documents")
-        raise CourtListenerError, "entry list was not paginated" unless page.is_a?(Page)
-        seen = {}
-        entries = page.each_result.map do |entry|
-          joined_id = entry["docket_id"] || entry["docket"]
-          joined_id = joined_id.to_s.sub(%r{/$}, "").split("/").last
-          raise CourtListenerError, "entry belongs to a different docket" unless joined_id == metadata["id"].to_s
-          id = entry["id"]
-          raise CourtListenerError, "missing or repeated docket-entry ID" if id.nil? || seen[id]
-          raise CourtListenerError, "entry lacks text/date/number fields" unless %w[description date_filed entry_number].all? { |key| entry.key?(key) }
-          seen[id] = true
-          entry.reject { |key, _value| %w[recap_documents documents plain_text filepath_local].include?(key) }
-        end
-        count = request(:get, "docket-entries", params: { docket: metadata["id"], count: "on" })["count"]
-        raise CourtListenerError, "entry count verification failed" unless count.is_a?(Integer) && count == entries.length
-        { "source" => "courtlistener", "metadata" => metadata, "docket_entries" => entries,
-          "entry_count" => entries.length, "api_count_verified" => true, "retrieved_at" => Time.now.utc.iso8601 }
+        request(:get, "usage")
       end
 
       def dockets(params = {})

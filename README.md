@@ -7,8 +7,6 @@ It has two layers:
 1. **Native Ruby framework.** Build and run court scrapers without Python. Native coverage currently includes the First Circuit (`ca1`) plus Ninth Circuit published (`ca9_p`) and unpublished (`ca9_u`) opinion feeds, with the framework needed to port additional courts.
 2. **Optional upstream bridge.** If the Python `juriscraper` package is installed, Ruby can invoke any existing upstream scraper module. This provides broad coverage immediately while individual scrapers are migrated to native Ruby.
 
-Native PACER/MFA docket reports and a CourtListener REST v4 client provide verified case matching and complete paginated docket-entry lists. Use `juriscraper dockets` to choose PACER, CourtListener, or both and write nested JSON.
-
 This project is independent from Free Law Project. See `NOTICE`.
 
 ## Requirements
@@ -639,9 +637,9 @@ client.citation_lookup(text: "410 U.S. 113")
 `Client.new` with no argument reads, in order:
 
 1. `Juriscraper.configuration.courtlistener_token` when it was set (including `""`, which forces an unauthenticated request);
-2. otherwise `ENV["COURTLISTENER_TOKEN"]`, then `ENV["COURTLISTENER_API_KEY"]` if empty.
+2. otherwise `ENV["COURTLISTENER_TOKEN"]`.
 
-An explicit `token:` argument wins over both. The value is sent only to the configured API origin. Cross-origin redirects are rejected, including POSTs that could contain PACER credentials. `require_token!` raises `Juriscraper::ConfigurationError` when nothing is configured.
+An explicit `token:` argument wins over both. The value is sent only to the configured API host. `require_token!` raises `Juriscraper::ConfigurationError` when nothing is configured.
 
 Search `type:` accepts `:opinions` (`o`), `:recap` (`r`), `:dockets` (`d`), `:documents` (`rd`), `:people` (`p`), and `:oral_arguments` (`oa`). `court:` may be one id or a list, sent space-separated the way the search API expects.
 
@@ -660,117 +658,6 @@ juriscraper courtlistener usage
 
 When `COURTLISTENER_TOKEN` or `courtlistener_token` is set, the CapoVirtual hook also runs one authenticated opinion search and stores it on `result[:juriscraper][:courtlistener]`. With no token that step is skipped.
 
-## PACER and verified CourtListener docket reports
-
-Version 0.4.0 adds native Ruby PACER authentication, MFA, PCL case search, and district/bankruptcy HTML docket reports. This workflow retrieves the **docket entry list, dates, and text**. It does not request PDFs, download filings, or follow document links. Python is not required.
-
-Set credentials in your shell, or supply the corresponding Ruby client/configuration options:
-
-| Environment variable | Purpose |
-| --- | --- |
-| `PACER_USER` | PACER username |
-| `PACER_PASS` | PACER password |
-| `PACER_CLIENT_CODE` | Optional billing client code |
-| `COURTLISTENER_TOKEN` | CourtListener API token |
-| `COURTLISTENER_API_KEY` | Alternative when `COURTLISTENER_TOKEN` is empty |
-| `PACER_OTP_CODE` | Optional one-time MFA code, consumed on authentication |
-| `PACER_TOTP_SECRET` | Optional Base32 authenticator secret for automatic six-digit TOTP |
-
-The CLI prompts for a current Google Authenticator/MFA code when PACER is first needed, unless an environment OTP/TOTP value is set. Terminal entry is hidden. `--no-mfa` disables that prompt for accounts without MFA. Credentials and session tokens are not written to the output JSON.
-
-```bash
-# Reads one or more files; prompts: pacer, courtlistener, or both.
-bundle exec juriscraper dockets cases.json more-cases.json --output docket-reports.json
-
-# Select a source without prompting.
-bundle exec juriscraper dockets cases.json --source courtlistener --output docket-reports.json
-bundle exec juriscraper dockets cases.json --source pacer --output pacer-reports.json
-bundle exec juriscraper dockets cases.json --source both --output both-reports.json
-```
-
-Input accepts a JSON case array or a PACER/PCL export object containing a `content` array. The preferred record shape is:
-
-```json
-{
-  "content": [
-    {
-      "caseId": 123456,
-      "courtId": "candc",
-      "caseNumberFull": "3:2026cv00001",
-      "caseTitle": "Alpha v. Beta",
-      "dateFiled": "2026-01-01",
-      "caseUrl": "https://ecf.cand.uscourts.gov/cgi-bin/iqquerymenu.pl?123456"
-    }
-  ]
-}
-```
-
-Ruby/CourtListener names `pacer_case_id`, `court`, `docket_number`, and `case_name` are also accepted. `caseId` is the **court's PACER case ID**, not CourtListener's docket ID. Repeated attorney/export rows are grouped by court and case ID; every original row is retained in `case.source_records`. Conflicting case numbers or titles for the same court/case ID raise a configuration error.
-
-CourtListener matching starts with `/api/rest/v4/dockets/?pacer_case_id=...` and examines **every page and every candidate**. A candidate must match the supplied case number, normalized title, court when supplied, and PACER case ID. Normalization handles compact/dashed numbers, two/four-digit years, judge suffixes, court-code aliases, punctuation, `et al.`, `vs.`, and `U.S.`/`United States`. It does not use fuzzy title ranking or select the first result. Two verified docket IDs raise `AmbiguousDocketError`, with candidate diagnostics.
-
-After selecting a CourtListener docket, the client exhausts every `/docket-entries/?docket=...` cursor, omits `recap_documents`, checks each entry's docket and unique ID, and verifies the final length with `count=on`. Numberless entries, repeated entry numbers, and missing dates are retained. General `Page#each_result` now exhausts all pages by default; use `each_result(max_pages: 3)` when you intentionally want a cap.
-
-PACER uses a supplied court/case ID directly, or searches PCL with the compact `caseNumberFull` field and verifies all paginated candidates against the supplied identity. Requests send `Accept: application/json`, `Content-Type: application/json`, and `X-NEXT-GEN-CSO` to PCL. HTTP 406 validation details remain available in the error message, with credentials redacted. Docket report requests leave date and document-number filters unrestricted, verify the returned case number and title when available, and preserve every recognized entry row. `metadata.case_name_verified` explicitly indicates whether the court included a verifiable header title. Unrecognized pages/layouts raise errors rather than returning a successful empty report. This provider currently targets district and bankruptcy CM/ECF courts, not appellate docket reports.
-
-With a single selected source, the other is tried only after **no verified match** or a **verified empty entry list**. Ambiguity, authentication, rate-limit, network, count-validation, and parsing errors do not trigger fallback. With `both`, the providers run independently and reports remain under separate `sources.pacer` and `sources.courtlistener` objects. Provider errors remain explicit; one success and one error produces `partial` status.
-
-Output nests each input case with its source report(s):
-
-```json
-{
-  "schema_version": 1,
-  "selected_source": "both",
-  "cases": [
-    {
-      "case": { "caseId": 123456, "source_records": [] },
-      "status": "complete",
-      "selected_source": "both",
-      "fallback_source": null,
-      "sources": {
-        "pacer": { "status": "complete", "entry_count": 1, "docket_entries": [{ "entry_number": 1, "date_filed": "2026-01-01", "description": "Complaint." }] },
-        "courtlistener": { "status": "complete", "entry_count": 1, "docket_entries": [{ "entry_number": 1, "date_filed": "2026-01-01", "description": "Complaint." }] }
-      }
-    }
-  ]
-}
-```
-
-The example abbreviates the original case and entry objects. Each real entry includes its date, number, and description; PACER also preserves raw date/number text and report order.
-
-The CLI atomically checkpoints after each case and saves on Ctrl-C. Rerun the same command/output to resume; completed cases are reused and failed cases are retried. For partial `both` results, the completed provider is reused while the failed provider is retried. `--refresh` rebuilds the output and fetches all requested cases again. PACER requests use your account's normal billing; completed output avoids repeating those report purchases. Exit status is `1` when a case/provider has an error, `130` after interruption, and `0` otherwise, including explicit `not_found` results.
-
-Use the clients directly:
-
-```ruby
-require "juriscraper"
-
-record = { caseId: 123456, courtId: "candc", caseNumberFull: "3:2026cv00001", caseTitle: "Alpha v. Beta" }
-
-# Direct CourtListener access; no fallback or PACER account needed here.
-cl = Juriscraper::CourtListener::Client.new.require_token!
-docket = cl.find_docket(record)
-report = cl.docket_report(record)
-
-# Native PACER with a callback for the current MFA code.
-pacer = Juriscraper::Pacer::Client.new(otp_provider: -> { ENV.fetch("CURRENT_MFA_CODE") })
-begin
-  report = pacer.docket_report(record)
-ensure
-  pacer.logout
-end
-
-# Shared selection/fallback workflow.
-fetcher = Juriscraper::Dockets::Fetcher.new(otp_provider: -> { ENV.fetch("CURRENT_MFA_CODE") })
-begin
-  result = fetcher.fetch(record, source: :both)
-ensure
-  fetcher.close
-end
-```
-
-References: [PACER authentication API](https://pacer.uscourts.gov/help/pacer/pacer-authentication-api-user-guide), [PCL API](https://pacer.uscourts.gov/help/pacer/pacer-case-locator-pcl-api-user-guide), and [CourtListener PACER data API](https://wiki.free.law/c/courtlistener/help/api/rest/v4/pacer-data).
-
 ## CLI
 
 ```text
@@ -784,7 +671,7 @@ juriscraper version
 
 ## Scope
 
-Version 0.4.0 adds PACER docket reports and verified CourtListener docket matching to the REST client introduced in 0.3.0. The scraping framework is native, but **not every upstream court module has been ported to Ruby yet**. Native coverage today is the First Circuit and the Ninth Circuit published and unpublished feeds. The optional `PythonBridge` is the compatibility path for the rest of the upstream corpus. Native ports can be added independently through the registry without changing callers.
+Version 0.3.0 adds the CourtListener REST client. The scraping framework is native, but **not every upstream court module has been ported to Ruby yet**. Native coverage today is the First Circuit and the Ninth Circuit published and unpublished feeds. The optional `PythonBridge` is the compatibility path for the rest of the upstream corpus. Native ports can be added independently through the registry without changing callers.
 
 ## License
 

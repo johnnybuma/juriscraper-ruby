@@ -1,14 +1,5 @@
 # Changelog
 
-## 0.4.0 - 2026-10-27
-
-- Added native `Pacer::Client`: PACER_USER/PACER_PASS authentication, MFA code/callback/TOTP, client codes, session rotation/logout, paginated PCL case search, and district/bankruptcy HTML docket reports. No filing downloads in this workflow.
-- Added CourtListener `find_docket` and `docket_report`: search by PACER case ID, inspect all candidates, require normalized number/title/court/ID matches, reject ambiguity, fetch every entry cursor, and verify entry counts.
-- Removed the implicit three-page `Page#each_result` limit; explicit `max_pages:` remains supported. Repeated cursors and malformed pagination raise errors.
-- Added `Dockets::Input`, `Dockets::Fetcher`, and `juriscraper dockets`: source selection, no-results fallback, independent both-source reports, preserved export rows, atomic JSON checkpoints, and resume/refresh.
-- Added COURTLISTENER_API_KEY alias, corrected API usage endpoint, redacted credential inspection/errors, and rejected cross-origin redirects rather than forwarding POST bodies.
-- Added offline regression coverage for identity checks, pagination, fallback, MFA, PACER layouts, protocol restrictions, and CLI resume; CI covers Ruby 3.1, 3.4, and 4.0. Declared the logger runtime dependency for Ruby 4.0/Bundler compatibility.
-
 ## 0.3.0 - 2026-10-07
 
 - Added `Juriscraper::CourtListener::Client`, a REST v4 client that sends `Authorization: Token <key>`.

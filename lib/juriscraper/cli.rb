@@ -2,20 +2,16 @@
 
 require "json"
 require "optparse"
-require "io/console"
-require "fileutils"
-require "tempfile"
 
 module Juriscraper
   class CLI
-    def self.start(argv = ARGV, out: $stdout, err: $stderr, input: $stdin)
-      new(out: out, err: err, input: input).run(argv)
+    def self.start(argv = ARGV, out: $stdout, err: $stderr)
+      new(out: out, err: err).run(argv)
     end
 
-    def initialize(out:, err:, input: $stdin)
+    def initialize(out:, err:)
       @out = out
       @err = err
-      @input = input
     end
 
     def run(argv)
@@ -30,8 +26,6 @@ module Juriscraper
         upstream(argv)
       when "courtlistener", "cl"
         courtlistener(argv)
-      when "dockets"
-        dockets(argv)
       when "version", "--version", "-v"
         @out.puts Juriscraper::VERSION
         0
@@ -45,113 +39,6 @@ module Juriscraper
     end
 
     private
-
-    def dockets(argv)
-      options = { source: nil, output: "docket-reports.json", refresh: false, mfa: true }
-      parser = OptionParser.new do |opts|
-        opts.banner = "Usage: juriscraper dockets INPUT.json [MORE.json ...] [options]"
-        opts.on("--source SOURCE", %w[pacer courtlistener both], "pacer, courtlistener, or both (otherwise prompt)") { |v| options[:source] = v }
-        opts.on("--output PATH", "Nested JSON output; saved after every case") { |v| options[:output] = v }
-        opts.on("--refresh", "Fetch cases already completed in this output") { options[:refresh] = true }
-        opts.on("--no-mfa", "Skip interactive MFA prompt (environment OTP/TOTP still works)") { options[:mfa] = false }
-      end
-      parser.parse!(argv)
-      raise OptionParser::MissingArgument, "INPUT.json" if argv.empty?
-      records = Dockets::Input.read(argv)
-      raise ConfigurationError, "input contains no cases" if records.empty?
-      source = options[:source] || prompt_source
-      path = File.expand_path(options[:output])
-      if argv.any? { |input| File.expand_path(input) == path }
-        raise ConfigurationError, "output must differ from the input files"
-      end
-      state = { "schema_version" => 1, "selected_source" => source, "cases" => [] }
-      unless options[:refresh] || !File.exist?(path)
-        begin
-          state = JSON.parse(File.read(path))
-        rescue JSON::ParserError
-          raise ConfigurationError, "output is not valid JSON; choose another output path"
-        end
-        unless state.is_a?(Hash) && state["schema_version"] == 1 && state["cases"].is_a?(Array) && state["selected_source"] == source &&
-               state["cases"].all? { |item| item.is_a?(Hash) && item["case"].is_a?(Hash) }
-          raise ConfigurationError, "output is incompatible or uses a different source; choose another output path"
-        end
-      end
-      fetcher = docket_fetcher(options)
-      failures = 0
-      records.each_with_index do |record, index|
-        key = docket_key(record)
-        position = state["cases"].index { |item| docket_key(item.fetch("case")) == key }
-        existing = position && state["cases"][position]
-        if existing && existing["status"] == "complete"
-          existing["case"] = record # keep every current input row/attorney association
-          @err.puts "[#{index + 1}/#{records.length}] #{record['caseNumberFull'] || record['docket_number']}: resumed"
-          next
-        end
-        @err.puts "[#{index + 1}/#{records.length}] #{record['caseNumberFull'] || record['docket_number']}"
-        begin
-          result = fetcher.fetch(record, source: source, previous: existing)
-          failures += 1 if %w[partial error].include?(result["status"])
-        rescue Juriscraper::Error => e
-          result = { "case" => record, "status" => "error", "error_class" => e.class.name, "message" => e.message }
-          result["candidates"] = e.candidates if e.respond_to?(:candidates)
-          failures += 1
-          @err.puts "  #{e.class}: #{e.message}"
-        end
-        position ? state["cases"][position] = result : state["cases"] << result
-        save_dockets(path, state)
-      end
-      save_dockets(path, state)
-      @out.puts path
-      failures.zero? ? 0 : 1
-    rescue Interrupt
-      save_dockets(path, state) if path && state
-      @err.puts "Interrupted; progress saved to #{path}"
-      130
-    rescue SystemCallError => e
-      raise ConfigurationError, "docket file operation failed: #{e.message}"
-    ensure
-      begin
-        fetcher&.close
-      rescue Juriscraper::Error => e
-        @err.puts "PACER logout failed: #{e.message}"
-      end
-    end
-
-    def docket_fetcher(options)
-      callback = options[:mfa] ? method(:prompt_otp) : nil
-      Dockets::Fetcher.new(otp_provider: callback)
-    end
-
-    def prompt_source
-      @err.print "Docket source [pacer/courtlistener/both]: "
-      source = @input.gets.to_s.strip.downcase
-      source = { "1" => "pacer", "2" => "courtlistener", "3" => "both" }.fetch(source, source)
-      raise ConfigurationError, "select pacer, courtlistener, or both, or pass --source" unless Dockets::Fetcher::SOURCES.map(&:to_s).include?(source)
-      source
-    end
-
-    def prompt_otp
-      @err.print "Current PACER MFA code (blank if MFA is disabled): "
-      value = @input.tty? ? @input.noecho(&:gets) : @input.gets
-      @err.puts if @input.tty?
-      value.to_s.strip
-    end
-
-    def docket_key(record)
-      identity = Dockets::Identity.new(record)
-      [identity.court, identity.case_id, identity.number, Dockets::Identity.normalize_title(identity.title)]
-    end
-
-    def save_dockets(path, state)
-      FileUtils.mkdir_p(File.dirname(path))
-      Tempfile.create(["docket-reports", ".json"], File.dirname(path)) do |file|
-        file.write(JSON.pretty_generate(state))
-        file.write("\n")
-        file.flush
-        file.fsync
-        File.rename(file.path, path)
-      end
-    end
 
     def scrape(argv)
       options = { pretty: false, file: nil }
@@ -285,7 +172,6 @@ module Juriscraper
           scrape SCRAPER [options]     Run a native Ruby scraper
           upstream MODULE [options]    Run any installed Python Juriscraper module
           courtlistener COMMAND        CourtListener REST v4 (Token auth)
-          dockets INPUT.json [...]     PACER/CourtListener docket entry reports
           version                      Print gem version
       TEXT
     end
